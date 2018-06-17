@@ -1863,23 +1863,12 @@ struct leap_time
      : _tp_with_ld(tp - std::chrono::seconds(1) + d), _is_leap(true)
    {}
 
-   CONSTCD11 time_point get_time() const NOEXCEPT
-   {
-      using namespace std::chrono;
-      return !_is_leap ? _tp_with_ld : floor<seconds>(_tp_with_ld) + seconds(1)- duration(1);
-   }
-
    CONSTCD11 time_point get_time(choose c) const NOEXCEPT
    {
       using namespace std::chrono;
       return !_is_leap ? _tp_with_ld :
                floor<seconds>(_tp_with_ld) + seconds(1) - 
                  (c == choose::earliest ? duration(1) : duration(0)); 
-   }
-
-   CONSTCD11 operator time_point() const NOEXCEPT
-   {
-     return get_time();
    }
 
    CONSTCD11 bool is_leap_second() const NOEXCEPT
@@ -1918,12 +1907,12 @@ public:
     template<typename Duration>
     static
     leap_time<std::chrono::system_clock, typename std::common_type<Duration, std::chrono::seconds>::type>
-    to_sys(const std::chrono::time_point<utc_clock, Duration>&);
+    to_sys_with_leap(const std::chrono::time_point<utc_clock, Duration>&);
 
     template<typename Duration>
     static
-    std::chrono::time_point<utc_clock, typename std::common_type<Duration, std::chrono::seconds>::type>
-    from_sys(const std::chrono::time_point<std::chrono::system_clock, Duration>&);
+    std::chrono::time_point<std::chrono::system_clock, typename std::common_type<Duration, std::chrono::seconds>::type>
+    to_sys(const std::chrono::time_point<utc_clock, Duration>&);
 
     template<typename Duration>
     static
@@ -1932,7 +1921,17 @@ public:
 
     template<typename Duration>
     static
+    std::chrono::time_point<utc_clock, typename std::common_type<Duration, std::chrono::seconds>::type>
+    from_sys(const std::chrono::time_point<std::chrono::system_clock, Duration>&);
+
+    template<typename Duration>
+    static
     leap_time<local_t, typename std::common_type<Duration, std::chrono::seconds>::type>
+    to_local_with_leap(const std::chrono::time_point<utc_clock, Duration>&);
+
+    template<typename Duration>
+    static
+    std::chrono::time_point<local_t, typename std::common_type<Duration, std::chrono::seconds>::type>
     to_local(const std::chrono::time_point<utc_clock, Duration>&);
 
     template<typename Duration>
@@ -2000,7 +1999,7 @@ is_leap_second(date::utc_time<Duration> const& ut)
 
 template <class Duration>
 leap_time<std::chrono::system_clock, typename std::common_type<Duration, std::chrono::seconds>::type>
-utc_clock::to_sys(const utc_time<Duration>& ut)
+utc_clock::to_sys_with_leap(const utc_time<Duration>& ut)
 {
     using namespace std::chrono;
     using duration = typename std::common_type<Duration, seconds>::type;
@@ -2008,6 +2007,19 @@ utc_clock::to_sys(const utc_time<Duration>& ut)
     auto ls = is_leap_second(ut);
     auto tp = sys_time<duration>{ut.time_since_epoch() - ls.second};
     return leap_time<system_clock, duration>{tp, ls.first};
+}
+
+template <class Duration>
+sys_time<typename std::common_type<Duration, std::chrono::seconds>::type>
+utc_clock::to_sys(const utc_time<Duration>& ut)
+{
+  using namespace std::chrono;
+  using duration = typename std::common_type<Duration, seconds>::type;
+ 
+  auto ltp = to_sys_with_leap(ut);
+  if (ltp._is_leap)
+    return floor<seconds>(ltp._tp_with_ld) + seconds(1) - duration(1);
+  return ltp._tp_with_ld; 
 }
 
 inline
@@ -2033,13 +2045,22 @@ utc_clock::from_local(const leap_time<local_t, Duration>& st)
 }
 
 template <class Duration>
-leap_time<local_t, typename std::common_type<Duration, std::chrono::seconds>::type>
+local_time<typename std::common_type<Duration, std::chrono::seconds>::type>
 utc_clock::to_local(const utc_time<Duration>& ut)
+{
+  //Should throw, like time_zones local
+  using duration = typename std::common_type<Duration, std::chrono::seconds>::type;
+  return local_time<duration>{to_sys(ut).time_since_epoch()};
+}
+
+template <class Duration>
+leap_time<local_t, typename std::common_type<Duration, std::chrono::seconds>::type>
+utc_clock::to_local_with_leap(const utc_time<Duration>& ut)
 {
     using duration = typename std::common_type<Duration, std::chrono::seconds>::type;
     auto stp = to_sys(ut);
     return leap_time<local_t, duration>{
-             local_time<duration>(stp._tp_with_ld.time_since_epoch()),
+             local_time<duration>{stp._tp_with_ld.time_since_epoch()},
              stp._is_leap};
 }
 
